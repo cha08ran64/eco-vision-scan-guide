@@ -22,8 +22,8 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onVoiceCommand }) => {
       return;
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognitionInstance = new SpeechRecognition();
+    const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognitionInstance = new SpeechRecognitionConstructor();
     
     recognitionInstance.continuous = false;
     recognitionInstance.interimResults = false;
@@ -37,13 +37,13 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onVoiceCommand }) => {
       });
     };
 
-    recognitionInstance.onresult = (event) => {
+    recognitionInstance.onresult = (event: SpeechRecognitionEvent) => {
       const command = event.results[0][0].transcript;
       onVoiceCommand(command);
       setIsListening(false);
     };
 
-    recognitionInstance.onerror = (event) => {
+    recognitionInstance.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('Speech recognition error:', event.error);
       setIsListening(false);
       toast({
