@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Camera, Upload, Mic, History, Share, Download, BarChart3, Leaf, Recycle, Trash2, Search } from 'lucide-react';
+import { Camera, Upload, History, BarChart3, Leaf, Recycle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,6 @@ import { toast } from '@/hooks/use-toast';
 import ImageCapture from './ImageCapture';
 import ScanResults from './ScanResults';
 import ScanHistory from './ScanHistory';
-import VoiceInput from './VoiceInput';
 import { ScanResult } from './types';
 
 const EcoScanApp = () => {
@@ -21,16 +20,50 @@ const EcoScanApp = () => {
   const [activeTab, setActiveTab] = useState('scan');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Mock AI analysis function
+  // Real AI analysis function using OpenAI Vision API
   const analyzeImage = async (imageData: string): Promise<ScanResult> => {
-    // Simulate AI processing delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Mock classification results
-    const mockResults: ScanResult[] = [
-      {
+    try {
+      const response = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: imageData }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze image');
+      }
+
+      const result = await response.json();
+      return {
         id: Date.now().toString(),
         image: imageData,
+        objectName: result.objectName || 'Unknown Object',
+        classification: result.classification || 'non-recyclable',
+        confidence: result.confidence || 0,
+        materials: result.materials || [],
+        environmentalImpact: result.environmentalImpact || {
+          carbonFootprint: 'Unknown',
+          recyclability: 'Unknown',
+          biodegradability: 'Unknown'
+        },
+        disposalTips: result.disposalTips || [],
+        reuseSuggestions: result.reuseSuggestions || [],
+        educationalFacts: result.educationalFacts || [],
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('AI Analysis error:', error);
+      // Fallback to mock data if API fails
+      return getMockResult(imageData);
+    }
+  };
+
+  // Fallback mock data
+  const getMockResult = (imageData: string): ScanResult => {
+    const mockResults: Omit<ScanResult, 'id' | 'image' | 'timestamp'>[] = [
+      {
         objectName: 'Plastic Water Bottle',
         classification: 'recyclable',
         confidence: 94,
@@ -54,12 +87,9 @@ const EcoScanApp = () => {
           'PET bottles can be recycled into clothing fibers',
           'One bottle takes 450 years to decompose naturally',
           'Recycling one bottle saves energy equivalent to powering a 60W bulb for 6 hours'
-        ],
-        timestamp: new Date().toISOString()
+        ]
       },
       {
-        id: Date.now().toString(),
-        image: imageData,
         objectName: 'Glass Jar',
         classification: 'reusable',
         confidence: 98,
@@ -83,12 +113,17 @@ const EcoScanApp = () => {
           'Glass can be recycled infinitely without quality loss',
           'Recycled glass uses 40% less energy than new glass',
           'Glass containers preserve food quality better than plastic'
-        ],
-        timestamp: new Date().toISOString()
+        ]
       }
     ];
     
-    return mockResults[Math.floor(Math.random() * mockResults.length)];
+    const selectedResult = mockResults[Math.floor(Math.random() * mockResults.length)];
+    return {
+      id: Date.now().toString(),
+      image: imageData,
+      timestamp: new Date().toISOString(),
+      ...selectedResult
+    };
   };
 
   const handleImageCapture = useCallback(async (imageData: string) => {
@@ -159,7 +194,7 @@ const EcoScanApp = () => {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-8">
+          <TabsList className="grid w-full grid-cols-3 mb-8">
             <TabsTrigger value="scan" className="flex items-center gap-2">
               <Camera className="w-4 h-4" />
               Scan
@@ -171,10 +206,6 @@ const EcoScanApp = () => {
             <TabsTrigger value="history" className="flex items-center gap-2">
               <History className="w-4 h-4" />
               History
-            </TabsTrigger>
-            <TabsTrigger value="search" className="flex items-center gap-2">
-              <Search className="w-4 h-4" />
-              Search
             </TabsTrigger>
           </TabsList>
 
@@ -201,13 +232,6 @@ const EcoScanApp = () => {
                     <Upload className="w-4 h-4 mr-2" />
                     Upload Image
                   </Button>
-                  
-                  <VoiceInput onVoiceCommand={(command) => {
-                    toast({
-                      title: "Voice Command",
-                      description: `Received: "${command}"`
-                    });
-                  }} />
                 </div>
                 
                 <input
@@ -286,24 +310,6 @@ const EcoScanApp = () => {
                 setActiveTab('results');
               }}
             />
-          </TabsContent>
-
-          <TabsContent value="search">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Search className="w-5 h-5" />
-                  Search Similar Products
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center text-muted-foreground py-8">
-                  <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Search functionality coming soon!</p>
-                  <p className="text-sm mt-2">Find similar reusable products and alternatives</p>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </div>

@@ -1,8 +1,9 @@
 
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Camera, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { toast } from '@/hooks/use-toast';
 
 interface ImageCaptureProps {
   onImageCapture: (imageData: string) => void;
@@ -12,35 +13,72 @@ interface ImageCaptureProps {
 const ImageCapture: React.FC<ImageCaptureProps> = ({ onImageCapture, isScanning }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
 
   const startCamera = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // Stop any existing stream first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints: MediaStreamConstraints = {
         video: {
           facingMode: facingMode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 }
         }
-      });
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        setIsStreaming(true);
+        
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          if (videoRef.current) {
+            videoRef.current.play().then(() => {
+              setIsStreaming(true);
+              toast({
+                title: "Camera Started",
+                description: "Point your camera at the object to scan"
+              });
+            }).catch((playError) => {
+              console.error('Error playing video:', playError);
+              toast({
+                title: "Camera Error",
+                description: "Failed to start video playback",
+                variant: "destructive"
+              });
+            });
+          }
+        };
       }
     } catch (error) {
       console.error('Error accessing camera:', error);
+      toast({
+        title: "Camera Access Failed",
+        description: "Please allow camera access and try again",
+        variant: "destructive"
+      });
     }
   }, [facingMode]);
 
   const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-      setIsStreaming(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
     }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    setIsStreaming(false);
   }, []);
 
   const captureImage = useCallback(() => {
@@ -49,25 +87,49 @@ const ImageCapture: React.FC<ImageCaptureProps> = ({ onImageCapture, isScanning 
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
       
+      // Set canvas dimensions to match video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       
-      if (context) {
-        context.drawImage(video, 0, 0);
+      if (context && video.videoWidth > 0 && video.videoHeight > 0) {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
         onImageCapture(imageData);
         stopCamera();
+        
+        toast({
+          title: "Image Captured",
+          description: "Processing image for analysis..."
+        });
+      } else {
+        toast({
+          title: "Capture Failed",
+          description: "Please wait for camera to fully load",
+          variant: "destructive"
+        });
       }
     }
   }, [onImageCapture, stopCamera]);
 
   const switchCamera = useCallback(() => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(newFacingMode);
+    
     if (isStreaming) {
       stopCamera();
-      setTimeout(startCamera, 100);
+      // Small delay to ensure camera is properly stopped before starting
+      setTimeout(() => {
+        startCamera();
+      }, 500);
     }
-  }, [isStreaming, startCamera, stopCamera]);
+  }, [facingMode, isStreaming, startCamera, stopCamera]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
 
   return (
     <Card className="p-4">
@@ -87,6 +149,7 @@ const ImageCapture: React.FC<ImageCaptureProps> = ({ onImageCapture, isScanning 
               ref={videoRef}
               autoPlay
               playsInline
+              muted
               className="w-full rounded-lg shadow-lg"
               style={{ maxHeight: '400px', objectFit: 'cover' }}
             />
@@ -98,12 +161,13 @@ const ImageCapture: React.FC<ImageCaptureProps> = ({ onImageCapture, isScanning 
                 className="gradient-eco text-white px-8"
               >
                 <Camera className="w-4 h-4 mr-2" />
-                Capture
+                {isScanning ? 'Processing...' : 'Capture'}
               </Button>
               
               <Button
                 onClick={switchCamera}
                 variant="outline"
+                disabled={isScanning}
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Switch
@@ -112,6 +176,7 @@ const ImageCapture: React.FC<ImageCaptureProps> = ({ onImageCapture, isScanning 
               <Button
                 onClick={stopCamera}
                 variant="outline"
+                disabled={isScanning}
               >
                 Stop
               </Button>
