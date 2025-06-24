@@ -25,6 +25,8 @@ serve(async (req) => {
       );
     }
 
+    console.log('Starting AI analysis...');
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -32,65 +34,80 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o-mini', // Faster model for quicker responses
         messages: [
           {
             role: 'system',
-            content: `You are an expert environmental scientist and waste management specialist. Analyze the image and provide detailed eco-friendly information about the object. 
+            content: `You are an expert environmental scientist and waste management specialist. Analyze the image quickly and provide comprehensive eco-friendly information about the object.
 
-Return your response as a JSON object with this exact structure:
+IMPORTANT: Return your response as a JSON object with this EXACT structure:
 {
-  "objectName": "string - name of the object",
-  "classification": "string - must be one of: reusable, recyclable, non-recyclable",
+  "objectName": "string - specific name of the object (e.g., 'Plastic Water Bottle', 'Glass Mason Jar')",
+  "classification": "string - must be exactly one of: reusable, recyclable, non-recyclable",
   "confidence": number - confidence percentage (0-100),
-  "materials": ["array of material types"],
+  "materials": ["array of specific material types with recycling codes if applicable"],
   "environmentalImpact": {
-    "carbonFootprint": "string - Low/Medium/High",
-    "recyclability": "string - Very Low/Low/Medium/High/Very High",
-    "biodegradability": "string - Never/Very Low/Low/Medium/High/Very High"
+    "carbonFootprint": "string - exactly one of: Very Low, Low, Medium, High, Very High",
+    "recyclability": "string - exactly one of: Very Low, Low, Medium, High, Very High",
+    "biodegradability": "string - exactly one of: Never, Very Low, Low, Medium, High, Very High"
   },
-  "disposalTips": ["array of disposal instructions"],
-  "reuseSuggestions": ["array of reuse ideas"],
-  "educationalFacts": ["array of environmental facts about this item"]
+  "disposalTips": ["array of 3-4 specific disposal instructions"],
+  "reuseSuggestions": ["array of 3-4 creative reuse ideas"],
+  "educationalFacts": ["array of 3-4 interesting environmental facts about this specific item type"]
 }
 
-Focus on accuracy and provide practical, actionable advice.`
+Focus on accuracy, practical advice, and detailed information. Be specific about materials and recycling codes where applicable.`
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'Analyze this image for waste classification and environmental impact. Provide detailed eco-friendly information.'
+                text: 'Analyze this image for waste classification and comprehensive environmental impact information. Provide detailed, actionable eco-friendly advice.'
               },
               {
                 type: 'image_url',
                 image_url: {
-                  url: image
+                  url: image,
+                  detail: 'low' // Use low detail for faster processing
                 }
               }
             ]
           }
         ],
-        max_tokens: 1000,
-        temperature: 0.3
+        max_tokens: 800, // Reduced for faster response
+        temperature: 0.1, // Lower temperature for more consistent results
+        top_p: 0.9
       }),
     });
 
     const data = await response.json();
     
     if (!response.ok) {
+      console.error('OpenAI API error:', data);
       throw new Error(data.error?.message || 'OpenAI API error');
     }
 
+    console.log('AI analysis completed successfully');
+
     let analysisResult;
     try {
-      analysisResult = JSON.parse(data.choices[0].message.content);
-    } catch (parseError) {
-      // If JSON parsing fails, create a structured response from the text
       const content = data.choices[0].message.content;
+      console.log('Raw AI response:', content);
+      
+      // Try to extract JSON from the response
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysisResult = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (parseError) {
+      console.error('JSON parsing failed:', parseError);
+      // Enhanced fallback response
+      const content = data.choices[0].message.content || '';
       analysisResult = {
-        objectName: 'Detected Object',
+        objectName: 'Detected Item',
         classification: 'non-recyclable',
         confidence: 75,
         materials: ['Unknown Material'],
@@ -99,11 +116,37 @@ Focus on accuracy and provide practical, actionable advice.`
           recyclability: 'Medium',
           biodegradability: 'Low'
         },
-        disposalTips: ['Check local disposal guidelines'],
-        reuseSuggestions: ['Consider creative repurposing'],
-        educationalFacts: [content.substring(0, 200) + '...']
+        disposalTips: [
+          'Check local waste disposal guidelines',
+          'Consider if item can be repaired or repurposed',
+          'Look for specialized recycling programs',
+          'Dispose of responsibly at waste management facility'
+        ],
+        reuseSuggestions: [
+          'Consider creative repurposing projects',
+          'Use for storage or organization',
+          'Transform into decorative items',
+          'Repurpose for gardening activities'
+        ],
+        educationalFacts: [
+          'Many items have hidden recycling potential',
+          'Proper disposal prevents environmental contamination',
+          'Reusing items reduces manufacturing demand',
+          content.substring(0, 150) + '...'
+        ]
       };
     }
+
+    // Validate required fields
+    if (!analysisResult.objectName) analysisResult.objectName = 'Detected Item';
+    if (!['reusable', 'recyclable', 'non-recyclable'].includes(analysisResult.classification)) {
+      analysisResult.classification = 'non-recyclable';
+    }
+    if (!analysisResult.confidence || analysisResult.confidence < 0 || analysisResult.confidence > 100) {
+      analysisResult.confidence = 75;
+    }
+
+    console.log('Returning analysis result:', analysisResult.objectName);
 
     return new Response(JSON.stringify(analysisResult), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
